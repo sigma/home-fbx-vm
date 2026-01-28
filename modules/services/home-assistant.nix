@@ -68,13 +68,6 @@ in
       "d ${cfg.dataDir} 0750 hass hass -"
     ];
 
-    # NAT for container networking
-    networking.nat = {
-      enable = true;
-      internalInterfaces = [ "ve-+" ];
-      externalInterface = "tailscale0";
-    };
-
     # Forward localhost port to container (for tailscale serve)
     systemd.services.hass-port-forward = {
       description = "Forward localhost:${toString cfg.port} to Home Assistant container";

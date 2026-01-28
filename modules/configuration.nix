@@ -5,32 +5,13 @@ let
 in
 {
   imports = [
+    ./network.nix
     ./sops.nix
     ./services
   ];
 
-  # Minimal NixOS configuration for Freebox VM
+  # NixOS configuration for Freebox VM
   # Base hardware config and stateVersion are provided by the flake-parts module
-
-  # Disable documentation to reduce closure size and avoid build issues
-  documentation.enable = false;
-  documentation.man.enable = false;
-  documentation.info.enable = false;
-  documentation.doc.enable = false;
-  documentation.nixos.enable = false;
-
-  # qemu is minimized via overlay in flake.nix
-
-  # Strip man/doc/info outputs from all packages to minimize closure
-  nixpkgs.overlays = [
-    (final: prev: {
-      linux-pam = prev.linux-pam.overrideAttrs (old: {
-        meta = old.meta // {
-          outputsToInstall = [ "out" ];
-        };
-      });
-    })
-  ];
 
   networking.hostName = "freebox-vm";
   time.timeZone = "Europe/Paris";
@@ -43,15 +24,6 @@ in
     extraGroups = [ "wheel" ];
     openssh.authorizedKeys.keys = keys.allKeysFor keys.users.yann;
   };
-
-  # Tailscale
-  services.tailscale = {
-    enable = true;
-    useRoutingFeatures = "server";  # Needed for subnet routing / serve
-  };
-
-  # Firewall: trust Tailscale interface
-  networking.firewall.trustedInterfaces = [ "tailscale0" ];
 
   # SSH access
   services.openssh = {
@@ -78,7 +50,10 @@ in
     options = "--delete-older-than 30d";
   };
 
-  # Enable services
+  # Network
+  fbx.network.tailscale.enable = true;
+
+  # Services
   fbx.services.home-assistant.enable = true;
   fbx.services.hummingbot.enable = true;
 }

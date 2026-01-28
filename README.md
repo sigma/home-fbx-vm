@@ -2,6 +2,35 @@
 
 NixOS configuration for a VM running on Freebox.
 
+## Network
+
+Network configuration is defined in `modules/network.nix`:
+
+```nix
+fbx.network.tailscale.enable = true;
+# fbx.network.containerNat.enable = true;  # enabled by default
+```
+
+### Tailscale
+
+Options under `fbx.network.tailscale`:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `enable` | `false` | Enable Tailscale VPN |
+| `useRoutingFeatures` | `"server"` | Routing features (server needed for subnet routing/serve) |
+| `trustInterface` | `true` | Trust tailscale0 in firewall |
+
+### Container NAT
+
+Options under `fbx.network.containerNat`:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `enable` | `true` | Enable NAT for container networking |
+| `internalInterfaces` | `["ve-+"]` | Internal interfaces to NAT |
+| `externalInterface` | `"tailscale0"` or `"eth0"` | External interface (tailscale0 if Tailscale enabled, eth0 otherwise) |
+
 ## Services
 
 Services are defined in `modules/services/` and enabled via options in `modules/configuration.nix`:
