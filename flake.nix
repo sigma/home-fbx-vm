@@ -24,6 +24,7 @@
         enable = true;
         modules = [
           sops-nix.nixosModules.sops
+          { nixpkgs.overlays = [ (import ./pkgs) ]; }
           ./modules/configuration.nix
         ];
       };
