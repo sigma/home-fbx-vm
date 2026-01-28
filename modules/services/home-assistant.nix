@@ -2,6 +2,7 @@
 
 let
   cfg = config.fbx.services.home-assistant;
+  fbxLib = config.fbx.lib;
 in
 {
   options.fbx.services.home-assistant = {
@@ -54,77 +55,62 @@ in
     };
   };
 
-  config = lib.mkIf cfg.enable {
-    # Create hass user/group on host (matching container) for bind mount permissions
-    users.users.hass = {
-      isSystemUser = true;
-      group = "hass";
-      uid = cfg.uid;
-    };
-    users.groups.hass.gid = cfg.uid;
+  config = lib.mkIf cfg.enable (lib.mkMerge [
+    # Host user/group
+    (fbxLib.mkServiceUser { name = "hass"; uid = cfg.uid; })
 
-    # Ensure data directory exists on host with correct ownership
-    systemd.tmpfiles.rules = [
-      "d ${cfg.dataDir} 0750 hass hass -"
-    ];
+    # Data directory
+    (fbxLib.mkDataDirs { user = "hass"; dirs = [ cfg.dataDir ]; })
 
-    # Forward localhost port to container (for tailscale serve)
-    systemd.services.hass-port-forward = {
-      description = "Forward localhost:${toString cfg.port} to Home Assistant container";
-      after = [ "network.target" "container@home-assistant.service" ];
-      wantedBy = [ "multi-user.target" ];
-      serviceConfig = {
-        ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:${toString cfg.port},fork,reuseaddr TCP:${cfg.localAddress}:${toString cfg.port}";
-        Restart = "always";
-      };
-    };
+    # Port forwarding for tailscale serve
+    (fbxLib.mkPortForward {
+      name = "hass";
+      port = cfg.port;
+      targetAddress = cfg.localAddress;
+      containerName = "home-assistant";
+    })
 
-    # Home Assistant container
-    containers.home-assistant = {
-      autoStart = true;
-      privateNetwork = true;
-      hostAddress = cfg.hostAddress;
-      localAddress = cfg.localAddress;
+    # Container and firewall
+    {
+      containers.home-assistant = {
+        autoStart = true;
+        privateNetwork = true;
+        hostAddress = cfg.hostAddress;
+        localAddress = cfg.localAddress;
 
-      # Bind mount for persistent config
-      bindMounts."${cfg.dataDir}" = {
-        hostPath = cfg.dataDir;
-        isReadOnly = false;
-      };
-
-      config = { config, pkgs, lib, ... }: {
-        # Fix DNS resolution in container
-        networking.useHostResolvConf = lib.mkForce false;
-        services.resolved.enable = true;
-
-        # Match hass user UID/GID with host for bind mount
-        users.users.hass.uid = lib.mkForce cfg.uid;
-        users.groups.hass.gid = lib.mkForce cfg.uid;
-
-        # Home Assistant service
-        services.home-assistant = {
-          enable = true;
-          openFirewall = true;
-          extraComponents = cfg.extraComponents;
-          config = {
-            homeassistant = {
-              name = "Home";
-              unit_system = "metric";
-              time_zone = cfg.timeZone;
-            };
-            http = {
-              server_port = cfg.port;
-              use_x_forwarded_for = true;
-              trusted_proxies = [ cfg.hostAddress ];
-            };
-          };
+        bindMounts."${cfg.dataDir}" = {
+          hostPath = cfg.dataDir;
+          isReadOnly = false;
         };
 
-        system.stateVersion = "25.11";
-      };
-    };
+        config = { config, pkgs, lib, ... }: lib.mkMerge [
+          fbxLib.containerDnsConfig
+          (fbxLib.mkContainerUser { name = "hass"; uid = cfg.uid; })
+          {
+            services.home-assistant = {
+              enable = true;
+              openFirewall = true;
+              extraComponents = cfg.extraComponents;
+              config = {
+                homeassistant = {
+                  name = "Home";
+                  unit_system = "metric";
+                  time_zone = cfg.timeZone;
+                };
+                http = {
+                  server_port = cfg.port;
+                  use_x_forwarded_for = true;
+                  trusted_proxies = [ cfg.hostAddress ];
+                };
+              };
+            };
 
-    # Allow port through firewall
-    networking.firewall.allowedTCPPorts = [ cfg.port ];
-  };
+            system.stateVersion = "25.11";
+          }
+        ];
+      };
+
+      networking.firewall.allowedTCPPorts = [ cfg.port ];
+    }
+  ]);
 }

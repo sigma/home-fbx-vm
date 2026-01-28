@@ -2,6 +2,7 @@
 
 let
   cfg = config.fbx.services.hummingbot;
+  fbxLib = config.fbx.lib;
 
   # Hummingbot Python package
   hummingbot = pkgs.python3Packages.buildPythonApplication rec {
@@ -145,132 +146,112 @@ in
     };
   };
 
-  config = lib.mkIf cfg.enable {
-    # Create hummingbot user/group on host (matching container) for bind mount permissions
-    users.users.hummingbot = {
-      isSystemUser = true;
-      group = "hummingbot";
-      uid = cfg.uid;
-    };
-    users.groups.hummingbot.gid = cfg.uid;
+  config = lib.mkIf cfg.enable (lib.mkMerge [
+    # Host user/group
+    (fbxLib.mkServiceUser { name = "hummingbot"; uid = cfg.uid; })
 
-    # Ensure data directories exist on host with correct ownership
-    systemd.tmpfiles.rules = [
-      "d ${cfg.dataDir} 0750 hummingbot hummingbot -"
-      "d ${cfg.dataDir}/conf 0750 hummingbot hummingbot -"
-      "d ${cfg.dataDir}/logs 0750 hummingbot hummingbot -"
-      "d ${cfg.dataDir}/data 0750 hummingbot hummingbot -"
-      "d ${cfg.dataDir}/scripts 0750 hummingbot hummingbot -"
-      "d ${cfg.dataDir}/certs 0750 hummingbot hummingbot -"
-      "d ${cfg.dataDir}/gateway 0750 hummingbot hummingbot -"
-    ];
+    # Data directories
+    (fbxLib.mkDataDirs {
+      user = "hummingbot";
+      dirs = [
+        cfg.dataDir
+        "${cfg.dataDir}/conf"
+        "${cfg.dataDir}/logs"
+        "${cfg.dataDir}/data"
+        "${cfg.dataDir}/scripts"
+        "${cfg.dataDir}/certs"
+        "${cfg.dataDir}/gateway"
+      ];
+    })
 
-    # Forward localhost port to container (for tailscale serve if needed)
-    systemd.services.hummingbot-gateway-forward = {
-      description = "Forward localhost:${toString cfg.gatewayPort} to Hummingbot Gateway container";
-      after = [ "network.target" "container@hummingbot.service" ];
-      wantedBy = [ "multi-user.target" ];
-      serviceConfig = {
-        ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:${toString cfg.gatewayPort},fork,reuseaddr TCP:${cfg.localAddress}:${toString cfg.gatewayPort}";
-        Restart = "always";
-      };
-    };
+    # Port forwarding for gateway
+    (fbxLib.mkPortForward {
+      name = "hummingbot-gateway";
+      port = cfg.gatewayPort;
+      targetAddress = cfg.localAddress;
+      containerName = "hummingbot";
+    })
 
-    # Hummingbot container
-    containers.hummingbot = {
-      autoStart = true;
-      privateNetwork = true;
-      hostAddress = cfg.hostAddress;
-      localAddress = cfg.localAddress;
+    # Container, secrets, and firewall
+    {
+      containers.hummingbot = {
+        autoStart = true;
+        privateNetwork = true;
+        hostAddress = cfg.hostAddress;
+        localAddress = cfg.localAddress;
 
-      # Bind mount for persistent data
-      bindMounts."${cfg.dataDir}" = {
-        hostPath = cfg.dataDir;
-        isReadOnly = false;
-      };
-
-      # Bind mount for sops secret (decrypted on host)
-      bindMounts."/run/secrets/gateway-passphrase" = {
-        hostPath = config.sops.secrets."hummingbot/gateway-passphrase".path;
-        isReadOnly = true;
-      };
-
-      config = { config, pkgs, lib, ... }: {
-        # Fix DNS resolution in container
-        networking.useHostResolvConf = lib.mkForce false;
-        services.resolved.enable = true;
-
-        # Match hummingbot user UID/GID with host for bind mount
-        users.users.hummingbot = {
-          isSystemUser = true;
-          group = "hummingbot";
-          uid = lib.mkForce cfg.uid;
-          home = cfg.dataDir;
-        };
-        users.groups.hummingbot.gid = lib.mkForce cfg.uid;
-
-        # Hummingbot service
-        systemd.services.hummingbot = {
-          description = "Hummingbot Trading Bot";
-          after = [ "network.target" ];
-          wantedBy = [ "multi-user.target" ];
-
-          serviceConfig = {
-            Type = "simple";
-            User = "hummingbot";
-            Group = "hummingbot";
-            WorkingDirectory = cfg.dataDir;
-            ExecStart = "${hummingbot}/bin/hummingbot";
-            Restart = "on-failure";
-            RestartSec = 10;
-          };
-
-          environment = {
-            HOME = cfg.dataDir;
-          };
+        bindMounts."${cfg.dataDir}" = {
+          hostPath = cfg.dataDir;
+          isReadOnly = false;
         };
 
-        # Gateway service
-        systemd.services.hummingbot-gateway = {
-          description = "Hummingbot Gateway";
-          after = [ "network.target" ];
-          wantedBy = [ "multi-user.target" ];
-
-          serviceConfig = {
-            Type = "simple";
-            User = "hummingbot";
-            Group = "hummingbot";
-            WorkingDirectory = "${cfg.dataDir}/gateway";
-            Restart = "always";
-            RestartSec = 5;
-          };
-
-          # Read passphrase from sops-managed secret file
-          script = ''
-            export GATEWAY_PASSPHRASE="$(cat /run/secrets/gateway-passphrase)"
-            exec ${gateway}/bin/hummingbot-gateway
-          '';
-
-          environment = {
-            PORT = toString cfg.gatewayPort;
-          };
+        bindMounts."/run/secrets/gateway-passphrase" = {
+          hostPath = config.sops.secrets."hummingbot/gateway-passphrase".path;
+          isReadOnly = true;
         };
 
-        # Open ports inside container
-        networking.firewall.allowedTCPPorts = [ cfg.gatewayPort ];
+        config = { config, pkgs, lib, ... }: lib.mkMerge [
+          fbxLib.containerDnsConfig
+          (fbxLib.mkContainerUser { name = "hummingbot"; uid = cfg.uid; home = cfg.dataDir; })
+          {
+            systemd.services.hummingbot = {
+              description = "Hummingbot Trading Bot";
+              after = [ "network.target" ];
+              wantedBy = [ "multi-user.target" ];
 
-        system.stateVersion = "25.11";
+              serviceConfig = {
+                Type = "simple";
+                User = "hummingbot";
+                Group = "hummingbot";
+                WorkingDirectory = cfg.dataDir;
+                ExecStart = "${hummingbot}/bin/hummingbot";
+                Restart = "on-failure";
+                RestartSec = 10;
+              };
+
+              environment = {
+                HOME = cfg.dataDir;
+              };
+            };
+
+            systemd.services.hummingbot-gateway = {
+              description = "Hummingbot Gateway";
+              after = [ "network.target" ];
+              wantedBy = [ "multi-user.target" ];
+
+              serviceConfig = {
+                Type = "simple";
+                User = "hummingbot";
+                Group = "hummingbot";
+                WorkingDirectory = "${cfg.dataDir}/gateway";
+                Restart = "always";
+                RestartSec = 5;
+              };
+
+              script = ''
+                export GATEWAY_PASSPHRASE="$(cat /run/secrets/gateway-passphrase)"
+                exec ${gateway}/bin/hummingbot-gateway
+              '';
+
+              environment = {
+                PORT = toString cfg.gatewayPort;
+              };
+            };
+
+            networking.firewall.allowedTCPPorts = [ cfg.gatewayPort ];
+
+            system.stateVersion = "25.11";
+          }
+        ];
       };
-    };
 
-    # sops secret for gateway passphrase
-    sops.secrets."hummingbot/gateway-passphrase" = {
-      owner = "hummingbot";
-      group = "hummingbot";
-      mode = "0400";
-    };
+      sops.secrets."hummingbot/gateway-passphrase" = {
+        owner = "hummingbot";
+        group = "hummingbot";
+        mode = "0400";
+      };
 
-    # Allow gateway port through host firewall
-    networking.firewall.allowedTCPPorts = [ cfg.gatewayPort ];
-  };
+      networking.firewall.allowedTCPPorts = [ cfg.gatewayPort ];
+    }
+  ]);
 }

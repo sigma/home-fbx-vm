@@ -5,6 +5,7 @@ let
 in
 {
   imports = [
+    ./lib
     ./network.nix
     ./sops.nix
     ./services
