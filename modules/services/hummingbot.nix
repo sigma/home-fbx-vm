@@ -164,15 +164,7 @@ in
       ];
     })
 
-    # Port forwarding for gateway
-    (fbxLib.mkPortForward {
-      name = "hummingbot-gateway";
-      port = cfg.gatewayPort;
-      targetAddress = cfg.localAddress;
-      containerName = "hummingbot";
-    })
-
-    # Container, secrets, and firewall
+    # Container and secrets
     {
       containers.hummingbot = {
         autoStart = true;
@@ -250,8 +242,6 @@ in
         group = "hummingbot";
         mode = "0400";
       };
-
-      networking.firewall.allowedTCPPorts = [ cfg.gatewayPort ];
     }
   ]);
 }
