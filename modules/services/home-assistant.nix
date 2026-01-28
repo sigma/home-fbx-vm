@@ -3,22 +3,11 @@
 let
   cfg = config.fbx.services.home-assistant;
   fbxLib = config.fbx.lib;
+  containerNet = config.fbx.containers.networkFor "home-assistant";
 in
 {
   options.fbx.services.home-assistant = {
     enable = lib.mkEnableOption "Home Assistant container";
-
-    hostAddress = lib.mkOption {
-      type = lib.types.str;
-      default = "192.168.100.1";
-      description = "Host-side IP address for the container network";
-    };
-
-    localAddress = lib.mkOption {
-      type = lib.types.str;
-      default = "192.168.100.2";
-      description = "Container-side IP address";
-    };
 
     port = lib.mkOption {
       type = lib.types.port;
@@ -56,6 +45,9 @@ in
   };
 
   config = lib.mkIf cfg.enable (lib.mkMerge [
+    # Auto-register in container registry
+    { fbx.containers.registry.home-assistant = {}; }
+
     # Host user/group
     (fbxLib.mkServiceUser { name = "hass"; uid = cfg.uid; })
 
@@ -66,7 +58,7 @@ in
     (fbxLib.mkPortForward {
       name = "hass";
       port = cfg.port;
-      targetAddress = cfg.localAddress;
+      targetAddress = containerNet.localAddress;
       containerName = "home-assistant";
     })
 
@@ -75,8 +67,7 @@ in
       containers.home-assistant = {
         autoStart = true;
         privateNetwork = true;
-        hostAddress = cfg.hostAddress;
-        localAddress = cfg.localAddress;
+        inherit (containerNet) hostAddress localAddress;
 
         bindMounts."${cfg.dataDir}" = {
           hostPath = cfg.dataDir;
@@ -100,7 +91,7 @@ in
                 http = {
                   server_port = cfg.port;
                   use_x_forwarded_for = true;
-                  trusted_proxies = [ cfg.hostAddress ];
+                  trusted_proxies = [ containerNet.hostAddress ];
                 };
               };
             };

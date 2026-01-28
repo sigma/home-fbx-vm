@@ -3,22 +3,11 @@
 let
   cfg = config.fbx.services.hummingbot;
   fbxLib = config.fbx.lib;
+  containerNet = config.fbx.containers.networkFor "hummingbot";
 in
 {
   options.fbx.services.hummingbot = {
     enable = lib.mkEnableOption "Hummingbot trading bot container";
-
-    hostAddress = lib.mkOption {
-      type = lib.types.str;
-      default = "192.168.100.1";
-      description = "Host-side IP address for the container network";
-    };
-
-    localAddress = lib.mkOption {
-      type = lib.types.str;
-      default = "192.168.100.3";
-      description = "Container-side IP address";
-    };
 
     gatewayPort = lib.mkOption {
       type = lib.types.port;
@@ -40,6 +29,9 @@ in
   };
 
   config = lib.mkIf cfg.enable (lib.mkMerge [
+    # Auto-register in container registry
+    { fbx.containers.registry.hummingbot = {}; }
+
     # Host user/group
     (fbxLib.mkServiceUser { name = "hummingbot"; uid = cfg.uid; })
 
@@ -62,8 +54,7 @@ in
       containers.hummingbot = {
         autoStart = true;
         privateNetwork = true;
-        hostAddress = cfg.hostAddress;
-        localAddress = cfg.localAddress;
+        inherit (containerNet) hostAddress localAddress;
 
         bindMounts."${cfg.dataDir}" = {
           hostPath = cfg.dataDir;

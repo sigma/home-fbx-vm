@@ -31,6 +31,65 @@ Options under `fbx.network.containerNat`:
 | `internalInterfaces` | `["ve-+"]` | Internal interfaces to NAT |
 | `externalInterface` | `"tailscale0"` or `"eth0"` | External interface (tailscale0 if Tailscale enabled, eth0 otherwise) |
 
+## Containers
+
+Container networking is managed centrally in `modules/containers.nix`. Services auto-register and receive IP addresses automatically.
+
+### Configuration
+
+```nix
+fbx.containers.network = {
+  hostAddress = "192.168.100.1";  # Host side of veth pairs
+  baseAddress = 2;                # First container gets .2
+};
+```
+
+### Address Allocation
+
+IPs are allocated based on sorted container names:
+
+| Container | Address |
+|-----------|---------|
+| home-assistant | 192.168.100.2 |
+| hummingbot | 192.168.100.3 |
+
+### Service Integration
+
+Services auto-register by adding to the registry:
+
+```nix
+# In a service module
+config = lib.mkIf cfg.enable (lib.mkMerge [
+  { fbx.containers.registry.my-service = {}; }
+  # ...
+]);
+```
+
+Then use the allocated address:
+
+```nix
+let
+  containerNet = config.fbx.containers.networkFor "my-service";
+in {
+  containers.my-service = {
+    inherit (containerNet) hostAddress localAddress;
+    # ...
+  };
+}
+```
+
+### Cross-Container Communication
+
+Services can reference other containers' addresses:
+
+```nix
+# Get another container's address
+config.fbx.containers.addressFor "hummingbot"  # "192.168.100.3"
+
+# Or via the registry
+config.fbx.containers.addresses.hummingbot     # "192.168.100.3"
+```
+
 ## Services
 
 Services are defined in `modules/services/` and enabled via options in `modules/configuration.nix`:

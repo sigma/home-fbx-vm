@@ -6,6 +6,7 @@ in
 {
   imports = [
     ./lib
+    ./containers.nix
     ./network.nix
     ./sops.nix
     ./services
