@@ -1,9 +1,13 @@
 { config, pkgs, lib, ... }:
 
 let
+  # Constants
+  containerName = "hummingbot";
+  userName = "hummingbot";
+
   cfg = config.fbx.services.hummingbot;
   fbxLib = config.fbx.lib;
-  containerNet = config.fbx.containers.networkFor "hummingbot";
+  containerNet = config.fbx.containers.networkFor containerName;
 in
 {
   options.fbx.services.hummingbot = {
@@ -17,27 +21,27 @@ in
 
     dataDir = lib.mkOption {
       type = lib.types.path;
-      default = "/var/lib/hummingbot";
+      default = "/var/lib/${userName}";
       description = "Directory for Hummingbot persistent data";
     };
 
     uid = lib.mkOption {
       type = lib.types.int;
       default = 401;
-      description = "UID for the hummingbot user (must match between host and container)";
+      description = "UID for the ${userName} user (must match between host and container)";
     };
   };
 
   config = lib.mkIf cfg.enable (lib.mkMerge [
     # Auto-register in container registry
-    { fbx.containers.registry.hummingbot = {}; }
+    { fbx.containers.registry.${containerName} = {}; }
 
     # Host user/group
-    (fbxLib.mkServiceUser { name = "hummingbot"; uid = cfg.uid; })
+    (fbxLib.mkServiceUser { name = userName; uid = cfg.uid; })
 
     # Data directories
     (fbxLib.mkDataDirs {
-      user = "hummingbot";
+      user = userName;
       dirs = [
         cfg.dataDir
         "${cfg.dataDir}/conf"
@@ -51,7 +55,7 @@ in
 
     # Container and secrets
     {
-      containers.hummingbot = {
+      containers.${containerName} = {
         autoStart = true;
         privateNetwork = true;
         inherit (containerNet) hostAddress localAddress;
@@ -62,23 +66,23 @@ in
         };
 
         bindMounts."/run/secrets/gateway-passphrase" = {
-          hostPath = config.sops.secrets."hummingbot/gateway-passphrase".path;
+          hostPath = config.sops.secrets."${userName}/gateway-passphrase".path;
           isReadOnly = true;
         };
 
         config = { config, pkgs, lib, ... }: lib.mkMerge [
           fbxLib.containerDnsConfig
-          (fbxLib.mkContainerUser { name = "hummingbot"; uid = cfg.uid; home = cfg.dataDir; })
+          (fbxLib.mkContainerUser { name = userName; uid = cfg.uid; home = cfg.dataDir; })
           {
-            systemd.services.hummingbot = {
+            systemd.services.${containerName} = {
               description = "Hummingbot Trading Bot";
               after = [ "network.target" ];
               wantedBy = [ "multi-user.target" ];
 
               serviceConfig = {
                 Type = "simple";
-                User = "hummingbot";
-                Group = "hummingbot";
+                User = userName;
+                Group = userName;
                 WorkingDirectory = cfg.dataDir;
                 ExecStart = "${pkgs.hummingbot}/bin/hummingbot";
                 Restart = "on-failure";
@@ -90,15 +94,15 @@ in
               };
             };
 
-            systemd.services.hummingbot-gateway = {
+            systemd.services."${containerName}-gateway" = {
               description = "Hummingbot Gateway";
               after = [ "network.target" ];
               wantedBy = [ "multi-user.target" ];
 
               serviceConfig = {
                 Type = "simple";
-                User = "hummingbot";
-                Group = "hummingbot";
+                User = userName;
+                Group = userName;
                 WorkingDirectory = "${cfg.dataDir}/gateway";
                 Restart = "always";
                 RestartSec = 5;
@@ -121,9 +125,9 @@ in
         ];
       };
 
-      sops.secrets."hummingbot/gateway-passphrase" = {
-        owner = "hummingbot";
-        group = "hummingbot";
+      sops.secrets."${userName}/gateway-passphrase" = {
+        owner = userName;
+        group = userName;
         mode = "0400";
       };
     }

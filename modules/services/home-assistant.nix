@@ -1,9 +1,13 @@
 { config, pkgs, lib, ... }:
 
 let
+  # Constants
+  containerName = "home-assistant";
+  userName = "hass";
+
   cfg = config.fbx.services.home-assistant;
   fbxLib = config.fbx.lib;
-  containerNet = config.fbx.containers.networkFor "home-assistant";
+  containerNet = config.fbx.containers.networkFor containerName;
 in
 {
   options.fbx.services.home-assistant = {
@@ -33,38 +37,38 @@ in
 
     dataDir = lib.mkOption {
       type = lib.types.path;
-      default = "/var/lib/hass";
+      default = "/var/lib/${userName}";
       description = "Directory for Home Assistant persistent data";
     };
 
     uid = lib.mkOption {
       type = lib.types.int;
       default = 400;
-      description = "UID for the hass user (must match between host and container)";
+      description = "UID for the ${userName} user (must match between host and container)";
     };
   };
 
   config = lib.mkIf cfg.enable (lib.mkMerge [
     # Auto-register in container registry
-    { fbx.containers.registry.home-assistant = {}; }
+    { fbx.containers.registry.${containerName} = {}; }
 
     # Host user/group
-    (fbxLib.mkServiceUser { name = "hass"; uid = cfg.uid; })
+    (fbxLib.mkServiceUser { name = userName; uid = cfg.uid; })
 
     # Data directory
-    (fbxLib.mkDataDirs { user = "hass"; dirs = [ cfg.dataDir ]; })
+    (fbxLib.mkDataDirs { user = userName; dirs = [ cfg.dataDir ]; })
 
     # Port forwarding for tailscale serve
     (fbxLib.mkPortForward {
-      name = "hass";
+      name = userName;
       port = cfg.port;
       targetAddress = containerNet.localAddress;
-      containerName = "home-assistant";
+      inherit containerName;
     })
 
     # Container and firewall
     {
-      containers.home-assistant = {
+      containers.${containerName} = {
         autoStart = true;
         privateNetwork = true;
         inherit (containerNet) hostAddress localAddress;
@@ -76,7 +80,7 @@ in
 
         config = { config, pkgs, lib, ... }: lib.mkMerge [
           fbxLib.containerDnsConfig
-          (fbxLib.mkContainerUser { name = "hass"; uid = cfg.uid; })
+          (fbxLib.mkContainerUser { name = userName; uid = cfg.uid; })
           {
             services.home-assistant = {
               enable = true;
