@@ -1,14 +1,12 @@
 { config, pkgs, lib, ... }:
 
 let
-  # Constants
+  # Constants only - no config access
   containerName = "hummingbot";
   userName = "hummingbot";
 
-  cfg = config.fbx.services.hummingbot;
-  fbxLib = config.fbx.lib;
-  containerNet = config.fbx.containers.networkFor containerName;
-  uid = config.fbx.users.uidFor userName;
+  # Capture host packages with overlay for use inside container
+  hostPkgs = pkgs;
 in
 {
   options.fbx.services.hummingbot = {
@@ -27,17 +25,19 @@ in
     };
   };
 
-  config = lib.mkIf cfg.enable (lib.mkMerge [
-    # Auto-register in container registry
-    { fbx.containers.registry.${containerName} = {}; }
-
+  config = lib.mkIf config.fbx.services.hummingbot.enable {
     # Host user/group
-    (fbxLib.mkServiceUser { name = userName; uid = uid; })
+    users.users.${userName} = {
+      isSystemUser = true;
+      group = userName;
+      uid = config.fbx.users.uidFor userName;
+    };
+    users.groups.${userName}.gid = config.fbx.users.uidFor userName;
 
     # Data directories
-    (fbxLib.mkDataDirs {
-      user = userName;
-      dirs = [
+    systemd.tmpfiles.rules =
+      let cfg = config.fbx.services.hummingbot;
+      in map (dir: "d ${dir} 0750 ${userName} ${userName} -") [
         cfg.dataDir
         "${cfg.dataDir}/conf"
         "${cfg.dataDir}/logs"
@@ -46,85 +46,90 @@ in
         "${cfg.dataDir}/certs"
         "${cfg.dataDir}/gateway"
       ];
-    })
 
-    # Container and secrets
-    {
-      containers.${containerName} = {
-        autoStart = true;
-        privateNetwork = true;
-        inherit (containerNet) hostAddress localAddress;
+    # Container
+    containers.${containerName} = {
+      autoStart = true;
+      privateNetwork = true;
+      hostAddress = (config.fbx.containers.networkFor containerName).hostAddress;
+      localAddress = (config.fbx.containers.networkFor containerName).localAddress;
 
-        bindMounts."${cfg.dataDir}" = {
-          hostPath = cfg.dataDir;
-          isReadOnly = false;
-        };
-
-        bindMounts."/run/secrets/gateway-passphrase" = {
-          hostPath = config.sops.secrets."${userName}/gateway-passphrase".path;
-          isReadOnly = true;
-        };
-
-        config = { config, pkgs, lib, ... }: lib.mkMerge [
-          fbxLib.containerDnsConfig
-          (fbxLib.mkContainerUser { name = userName; uid = uid; home = cfg.dataDir; })
-          {
-            systemd.services.${containerName} = {
-              description = "Hummingbot Trading Bot";
-              after = [ "network.target" ];
-              wantedBy = [ "multi-user.target" ];
-
-              serviceConfig = {
-                Type = "simple";
-                User = userName;
-                Group = userName;
-                WorkingDirectory = cfg.dataDir;
-                ExecStart = "${pkgs.hummingbot}/bin/hummingbot";
-                Restart = "on-failure";
-                RestartSec = 10;
-              };
-
-              environment = {
-                HOME = cfg.dataDir;
-              };
-            };
-
-            systemd.services."${containerName}-gateway" = {
-              description = "Hummingbot Gateway";
-              after = [ "network.target" ];
-              wantedBy = [ "multi-user.target" ];
-
-              serviceConfig = {
-                Type = "simple";
-                User = userName;
-                Group = userName;
-                WorkingDirectory = "${cfg.dataDir}/gateway";
-                Restart = "always";
-                RestartSec = 5;
-              };
-
-              script = ''
-                export GATEWAY_PASSPHRASE="$(cat /run/secrets/gateway-passphrase)"
-                exec ${pkgs.hummingbot-gateway}/bin/hummingbot-gateway
-              '';
-
-              environment = {
-                PORT = toString cfg.gatewayPort;
-              };
-            };
-
-            networking.firewall.allowedTCPPorts = [ cfg.gatewayPort ];
-
-            system.stateVersion = "25.11";
-          }
-        ];
+      bindMounts."${config.fbx.services.hummingbot.dataDir}" = {
+        hostPath = config.fbx.services.hummingbot.dataDir;
+        isReadOnly = false;
       };
 
-      sops.secrets."${userName}/gateway-passphrase" = {
-        owner = userName;
-        group = userName;
-        mode = "0400";
+      bindMounts."/run/secrets/gateway-passphrase" = {
+        hostPath = config.sops.secrets."${userName}/gateway-passphrase".path;
+        isReadOnly = true;
       };
-    }
-  ]);
+
+      config = { ... }: {
+        # DNS
+        networking.useHostResolvConf = lib.mkForce false;
+        services.resolved.enable = true;
+
+        # User
+        users.users.${userName} = {
+          isSystemUser = true;
+          group = userName;
+        };
+        users.groups.${userName} = {};
+
+        systemd.services.${containerName} = {
+          description = "Hummingbot Trading Bot";
+          after = [ "network.target" ];
+          wantedBy = [ "multi-user.target" ];
+
+          serviceConfig = {
+            Type = "simple";
+            User = userName;
+            Group = userName;
+            WorkingDirectory = "/var/lib/${userName}";
+            ExecStart = "${hostPkgs.hummingbot}/bin/hummingbot";
+            Restart = "on-failure";
+            RestartSec = 10;
+          };
+
+          environment = {
+            HOME = "/var/lib/${userName}";
+          };
+        };
+
+        systemd.services."${containerName}-gateway" = {
+          description = "Hummingbot Gateway";
+          after = [ "network.target" ];
+          wantedBy = [ "multi-user.target" ];
+
+          serviceConfig = {
+            Type = "simple";
+            User = userName;
+            Group = userName;
+            WorkingDirectory = "/var/lib/${userName}/gateway";
+            Restart = "always";
+            RestartSec = 5;
+          };
+
+          script = ''
+            export GATEWAY_PASSPHRASE="$(cat /run/secrets/gateway-passphrase)"
+            exec ${hostPkgs.hummingbot-gateway}/bin/hummingbot-gateway
+          '';
+
+          environment = {
+            PORT = "15888";
+          };
+        };
+
+        networking.firewall.allowedTCPPorts = [ 15888 ];
+
+        system.stateVersion = "25.11";
+      };
+    };
+
+    sops.secrets."${userName}/gateway-passphrase" = {
+      owner = userName;
+      group = userName;
+      mode = "0400";
+    };
+  };
 }

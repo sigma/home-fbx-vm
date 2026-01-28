@@ -33,11 +33,17 @@ Options under `fbx.network.containerNat`:
 
 ## Containers
 
-Container networking is managed centrally in `modules/containers.nix`. Services auto-register and receive IP addresses automatically.
+Container networking is managed centrally in `modules/containers.nix`. Containers are registered in `configuration.nix` and receive IP addresses automatically based on their sorted names.
 
 ### Configuration
 
 ```nix
+# In configuration.nix
+fbx.containers.registry = {
+  home-assistant = {};
+  hummingbot = {};
+};
+
 fbx.containers.network = {
   hostAddress = "192.168.100.1";  # Host side of veth pairs
   baseAddress = 2;                # First container gets .2
@@ -55,27 +61,15 @@ IPs are allocated based on sorted container names:
 
 ### Service Integration
 
-Services auto-register by adding to the registry:
+Services use the centralized registry to get their network configuration:
 
 ```nix
 # In a service module
-config = lib.mkIf cfg.enable (lib.mkMerge [
-  { fbx.containers.registry.my-service = {}; }
+containers.my-service = {
+  hostAddress = (config.fbx.containers.networkFor "my-service").hostAddress;
+  localAddress = (config.fbx.containers.networkFor "my-service").localAddress;
   # ...
-]);
-```
-
-Then use the allocated address:
-
-```nix
-let
-  containerNet = config.fbx.containers.networkFor "my-service";
-in {
-  containers.my-service = {
-    inherit (containerNet) hostAddress localAddress;
-    # ...
-  };
-}
+};
 ```
 
 ### Cross-Container Communication
@@ -86,7 +80,7 @@ Services can reference other containers' addresses:
 # Get another container's address
 config.fbx.containers.addressFor "hummingbot"  # "192.168.100.3"
 
-# Or via the registry
+# Or via the computed addresses
 config.fbx.containers.addresses.hummingbot     # "192.168.100.3"
 ```
 

@@ -56,6 +56,12 @@ in
   # Network
   fbx.network.tailscale.enable = true;
 
+  # Container registry (centralized IP allocation)
+  fbx.containers.registry = {
+    home-assistant = {};
+    hummingbot = {};
+  };
+
   # Service users/groups (centralized UID/GID allocation)
   fbx.users.serviceUsers = {
     hass = { uid = 400; description = "Home Assistant"; };

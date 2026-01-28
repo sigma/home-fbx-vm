@@ -10,7 +10,7 @@ let
   addressIndex = name:
     let idx = lib.lists.findFirstIndex (n: n == name) null containerNames;
     in if idx == null
-       then throw "Container '${name}' not found in registry"
+       then throw "Container '${name}' not found in fbx.containers.registry. Add it to configuration.nix."
        else idx;
 
   computeAddress = name:
@@ -22,7 +22,7 @@ let
 
   # Build registry with computed addresses
   registryWithAddresses = lib.mapAttrs (name: value: value // {
-    address = value.address or (computeAddress name);
+    address = if value.address != null then value.address else computeAddress name;
   }) cfg.registry;
 
 in
@@ -53,7 +53,7 @@ in
         };
       });
       default = {};
-      description = "Registry of containers and their network configuration";
+      description = "Registry of containers for network address allocation. Define in configuration.nix.";
     };
 
     # Computed values available to other modules
@@ -81,7 +81,7 @@ in
 
     networkFor = name: {
       hostAddress = cfg.network.hostAddress;
-      localAddress = cfg.addressFor name;
+      localAddress = registryWithAddresses.${name}.address;
     };
 
     addresses = lib.mapAttrs (name: value: value.address) registryWithAddresses;

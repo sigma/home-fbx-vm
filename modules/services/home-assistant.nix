@@ -1,14 +1,9 @@
 { config, pkgs, lib, ... }:
 
 let
-  # Constants
+  # Constants only - no config access
   containerName = "home-assistant";
   userName = "hass";
-
-  cfg = config.fbx.services.home-assistant;
-  fbxLib = config.fbx.lib;
-  containerNet = config.fbx.containers.networkFor containerName;
-  uid = config.fbx.users.uidFor userName;
 in
 {
   options.fbx.services.home-assistant = {
@@ -22,7 +17,7 @@ in
 
     timeZone = lib.mkOption {
       type = lib.types.str;
-      default = config.time.timeZone;
+      default = "Europe/Paris";
       description = "Time zone for Home Assistant";
     };
 
@@ -43,64 +38,81 @@ in
     };
   };
 
-  config = lib.mkIf cfg.enable (lib.mkMerge [
-    # Auto-register in container registry
-    { fbx.containers.registry.${containerName} = {}; }
-
+  config = lib.mkIf config.fbx.services.home-assistant.enable {
     # Host user/group
-    (fbxLib.mkServiceUser { name = userName; uid = uid; })
+    users.users.${userName} = {
+      isSystemUser = true;
+      group = userName;
+      uid = config.fbx.users.uidFor userName;
+    };
+    users.groups.${userName}.gid = config.fbx.users.uidFor userName;
 
     # Data directory
-    (fbxLib.mkDataDirs { user = userName; dirs = [ cfg.dataDir ]; })
+    systemd.tmpfiles.rules = [
+      "d ${config.fbx.services.home-assistant.dataDir} 0750 ${userName} ${userName} -"
+    ];
 
     # Port forwarding for tailscale serve
-    (fbxLib.mkPortForward {
-      name = userName;
-      port = cfg.port;
-      targetAddress = containerNet.localAddress;
-      inherit containerName;
-    })
+    systemd.services."${userName}-port-forward" = {
+      description = "Forward localhost:${toString config.fbx.services.home-assistant.port} to ${userName} container";
+      after = [ "network.target" "container@${containerName}.service" ];
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:${toString config.fbx.services.home-assistant.port},fork,reuseaddr TCP:${(config.fbx.containers.networkFor containerName).localAddress}:${toString config.fbx.services.home-assistant.port}";
+        Restart = "always";
+      };
+    };
 
-    # Container and firewall
-    {
-      containers.${containerName} = {
-        autoStart = true;
-        privateNetwork = true;
-        inherit (containerNet) hostAddress localAddress;
+    # Container
+    containers.${containerName} = {
+      autoStart = true;
+      privateNetwork = true;
+      hostAddress = (config.fbx.containers.networkFor containerName).hostAddress;
+      localAddress = (config.fbx.containers.networkFor containerName).localAddress;
 
-        bindMounts."${cfg.dataDir}" = {
-          hostPath = cfg.dataDir;
-          isReadOnly = false;
-        };
-
-        config = { config, pkgs, lib, ... }: lib.mkMerge [
-          fbxLib.containerDnsConfig
-          (fbxLib.mkContainerUser { name = userName; uid = uid; })
-          {
-            services.home-assistant = {
-              enable = true;
-              openFirewall = true;
-              extraComponents = cfg.extraComponents;
-              config = {
-                homeassistant = {
-                  name = "Home";
-                  unit_system = "metric";
-                  time_zone = cfg.timeZone;
-                };
-                http = {
-                  server_port = cfg.port;
-                  use_x_forwarded_for = true;
-                  trusted_proxies = [ containerNet.hostAddress ];
-                };
-              };
-            };
-
-            system.stateVersion = "25.11";
-          }
-        ];
+      bindMounts."${config.fbx.services.home-assistant.dataDir}" = {
+        hostPath = config.fbx.services.home-assistant.dataDir;
+        isReadOnly = false;
       };
 
-      networking.firewall.allowedTCPPorts = [ cfg.port ];
-    }
-  ]);
+      config = { config, pkgs, lib, ... }: {
+        # DNS
+        networking.useHostResolvConf = lib.mkForce false;
+        services.resolved.enable = true;
+
+        # User
+        users.users.${userName} = {
+          isSystemUser = true;
+          group = userName;
+        };
+        users.groups.${userName} = {};
+
+        services.home-assistant = {
+          enable = true;
+          openFirewall = true;
+          extraComponents = [
+            "default_config"
+            "met"
+            "esphome"
+          ];
+          config = {
+            homeassistant = {
+              name = "Home";
+              unit_system = "metric";
+              time_zone = "Europe/Paris";
+            };
+            http = {
+              server_port = 8123;
+              use_x_forwarded_for = true;
+              trusted_proxies = [ "192.168.100.1" ];
+            };
+          };
+        };
+
+        system.stateVersion = "25.11";
+      };
+    };
+
+    networking.firewall.allowedTCPPorts = [ config.fbx.services.home-assistant.port ];
+  };
 }
