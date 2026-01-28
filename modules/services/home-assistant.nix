@@ -8,6 +8,7 @@ let
   cfg = config.fbx.services.home-assistant;
   fbxLib = config.fbx.lib;
   containerNet = config.fbx.containers.networkFor containerName;
+  uid = config.fbx.users.uidFor userName;
 in
 {
   options.fbx.services.home-assistant = {
@@ -40,12 +41,6 @@ in
       default = "/var/lib/${userName}";
       description = "Directory for Home Assistant persistent data";
     };
-
-    uid = lib.mkOption {
-      type = lib.types.int;
-      default = 400;
-      description = "UID for the ${userName} user (must match between host and container)";
-    };
   };
 
   config = lib.mkIf cfg.enable (lib.mkMerge [
@@ -53,7 +48,7 @@ in
     { fbx.containers.registry.${containerName} = {}; }
 
     # Host user/group
-    (fbxLib.mkServiceUser { name = userName; uid = cfg.uid; })
+    (fbxLib.mkServiceUser { name = userName; uid = uid; })
 
     # Data directory
     (fbxLib.mkDataDirs { user = userName; dirs = [ cfg.dataDir ]; })
@@ -80,7 +75,7 @@ in
 
         config = { config, pkgs, lib, ... }: lib.mkMerge [
           fbxLib.containerDnsConfig
-          (fbxLib.mkContainerUser { name = userName; uid = cfg.uid; })
+          (fbxLib.mkContainerUser { name = userName; uid = uid; })
           {
             services.home-assistant = {
               enable = true;

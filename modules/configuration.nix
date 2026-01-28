@@ -8,6 +8,7 @@ in
     ./lib
     ./containers.nix
     ./network.nix
+    ./users.nix
     ./sops.nix
     ./services
   ];
@@ -54,6 +55,16 @@ in
 
   # Network
   fbx.network.tailscale.enable = true;
+
+  # Service users/groups (centralized UID/GID allocation)
+  fbx.users.serviceUsers = {
+    hass = { uid = 400; description = "Home Assistant"; };
+    hummingbot = { uid = 401; description = "Hummingbot trading bot"; };
+  };
+  fbx.users.serviceGroups = {
+    hass = { gid = 400; description = "Home Assistant"; };
+    hummingbot = { gid = 401; description = "Hummingbot trading bot"; };
+  };
 
   # Services
   fbx.services.home-assistant.enable = true;
