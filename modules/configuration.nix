@@ -1,6 +1,14 @@
 { pkgs, lib, ... }:
 
+let
+  keys = import ./keys.nix;
+in
 {
+  imports = [
+    ./sops.nix
+    ./services
+  ];
+
   # Minimal NixOS configuration for Freebox VM
   # Base hardware config and stateVersion are provided by the flake-parts module
 
@@ -33,9 +41,7 @@
   users.users.yann = {
     isNormalUser = true;
     extraGroups = [ "wheel" ];
-    openssh.authorizedKeys.keys = [
-      "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBCH9S6aF3W4/pKY+s/FpZAl8zIXXxI7LHE4fVd+foYdXtQI2mhiIyBX4jtbYkhACOSha5i2TPYKpBqy3NtI/utc="
-    ];
+    openssh.authorizedKeys.keys = keys.allKeysFor keys.users.yann;
   };
 
   # Tailscale
@@ -71,4 +77,8 @@
     dates = "weekly";
     options = "--delete-older-than 30d";
   };
+
+  # Enable services
+  fbx.services.home-assistant.enable = true;
+  fbx.services.hummingbot.enable = true;
 }
