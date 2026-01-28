@@ -1,10 +1,17 @@
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, fbxOverlay ? null, ... }:
 
 {
   options.fbx.lib = lib.mkOption {
     type = lib.types.attrs;
     default = {};
     description = "Helper functions for fbx modules";
+  };
+
+  # Store overlay for use by other modules
+  options.fbx.pkgs.overlay = lib.mkOption {
+    type = lib.types.nullOr (lib.types.functionTo (lib.types.functionTo lib.types.attrs));
+    default = fbxOverlay;
+    description = "The packages overlay for this configuration";
   };
 
   config.fbx.lib = {
@@ -43,7 +50,19 @@
       systemd.tmpfiles.rules = map (dir: "d ${dir} 0750 ${user} ${user} -") dirs;
     };
 
-    # Common container configuration for DNS resolution
+    # Common container base configuration (overlay + DNS + stateVersion)
+    containerBaseConfig = lib.mkMerge [
+      {
+        networking.useHostResolvConf = lib.mkForce false;
+        services.resolved.enable = true;
+        system.stateVersion = "25.11";
+      }
+      (lib.mkIf (config.fbx.pkgs.overlay != null) {
+        nixpkgs.overlays = [ config.fbx.pkgs.overlay ];
+      })
+    ];
+
+    # Deprecated: use containerBaseConfig instead
     containerDnsConfig = {
       networking.useHostResolvConf = lib.mkForce false;
       services.resolved.enable = true;

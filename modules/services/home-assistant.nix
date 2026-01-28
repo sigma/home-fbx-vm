@@ -75,42 +75,39 @@ in
         isReadOnly = false;
       };
 
-      config = { config, pkgs, lib, ... }: {
-        # DNS
-        networking.useHostResolvConf = lib.mkForce false;
-        services.resolved.enable = true;
+      config = { ... }: lib.mkMerge [
+        config.fbx.lib.containerBaseConfig
+        {
+          # User
+          users.users.${userName} = {
+            isSystemUser = true;
+            group = userName;
+          };
+          users.groups.${userName} = {};
 
-        # User
-        users.users.${userName} = {
-          isSystemUser = true;
-          group = userName;
-        };
-        users.groups.${userName} = {};
-
-        services.home-assistant = {
-          enable = true;
-          openFirewall = true;
-          extraComponents = [
-            "default_config"
-            "met"
-            "esphome"
-          ];
-          config = {
-            homeassistant = {
-              name = "Home";
-              unit_system = "metric";
-              time_zone = "Europe/Paris";
-            };
-            http = {
-              server_port = 8123;
-              use_x_forwarded_for = true;
-              trusted_proxies = [ "192.168.100.1" ];
+          services.home-assistant = {
+            enable = true;
+            openFirewall = true;
+            extraComponents = [
+              "default_config"
+              "met"
+              "esphome"
+            ];
+            config = {
+              homeassistant = {
+                name = "Home";
+                unit_system = "metric";
+                time_zone = "Europe/Paris";
+              };
+              http = {
+                server_port = 8123;
+                use_x_forwarded_for = true;
+                trusted_proxies = [ "192.168.100.1" ];
+              };
             };
           };
-        };
-
-        system.stateVersion = "25.11";
-      };
+        }
+      ];
     };
 
     networking.firewall.allowedTCPPorts = [ config.fbx.services.home-assistant.port ];

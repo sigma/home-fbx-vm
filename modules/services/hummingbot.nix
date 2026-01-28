@@ -4,9 +4,6 @@ let
   # Constants only - no config access
   containerName = "hummingbot";
   userName = "hummingbot";
-
-  # Capture host packages with overlay for use inside container
-  hostPkgs = pkgs;
 in
 {
   options.fbx.services.hummingbot = {
@@ -64,66 +61,63 @@ in
         isReadOnly = true;
       };
 
-      config = { ... }: {
-        # DNS
-        networking.useHostResolvConf = lib.mkForce false;
-        services.resolved.enable = true;
+      config = { pkgs, ... }: lib.mkMerge [
+        config.fbx.lib.containerBaseConfig
+        {
+          # User
+          users.users.${userName} = {
+            isSystemUser = true;
+            group = userName;
+          };
+          users.groups.${userName} = {};
 
-        # User
-        users.users.${userName} = {
-          isSystemUser = true;
-          group = userName;
-        };
-        users.groups.${userName} = {};
+          systemd.services.${containerName} = {
+            description = "Hummingbot Trading Bot";
+            after = [ "network.target" ];
+            wantedBy = [ "multi-user.target" ];
 
-        systemd.services.${containerName} = {
-          description = "Hummingbot Trading Bot";
-          after = [ "network.target" ];
-          wantedBy = [ "multi-user.target" ];
+            serviceConfig = {
+              Type = "simple";
+              User = userName;
+              Group = userName;
+              WorkingDirectory = "/var/lib/${userName}";
+              ExecStart = "${pkgs.hummingbot}/bin/hummingbot";
+              Restart = "on-failure";
+              RestartSec = 10;
+            };
 
-          serviceConfig = {
-            Type = "simple";
-            User = userName;
-            Group = userName;
-            WorkingDirectory = "/var/lib/${userName}";
-            ExecStart = "${hostPkgs.hummingbot}/bin/hummingbot";
-            Restart = "on-failure";
-            RestartSec = 10;
+            environment = {
+              HOME = "/var/lib/${userName}";
+            };
           };
 
-          environment = {
-            HOME = "/var/lib/${userName}";
+          systemd.services."${containerName}-gateway" = {
+            description = "Hummingbot Gateway";
+            after = [ "network.target" ];
+            wantedBy = [ "multi-user.target" ];
+
+            serviceConfig = {
+              Type = "simple";
+              User = userName;
+              Group = userName;
+              WorkingDirectory = "/var/lib/${userName}/gateway";
+              Restart = "always";
+              RestartSec = 5;
+            };
+
+            script = ''
+              export GATEWAY_PASSPHRASE="$(cat /run/secrets/gateway-passphrase)"
+              exec ${pkgs.hummingbot-gateway}/bin/hummingbot-gateway
+            '';
+
+            environment = {
+              PORT = "15888";
+            };
           };
-        };
 
-        systemd.services."${containerName}-gateway" = {
-          description = "Hummingbot Gateway";
-          after = [ "network.target" ];
-          wantedBy = [ "multi-user.target" ];
-
-          serviceConfig = {
-            Type = "simple";
-            User = userName;
-            Group = userName;
-            WorkingDirectory = "/var/lib/${userName}/gateway";
-            Restart = "always";
-            RestartSec = 5;
-          };
-
-          script = ''
-            export GATEWAY_PASSPHRASE="$(cat /run/secrets/gateway-passphrase)"
-            exec ${hostPkgs.hummingbot-gateway}/bin/hummingbot-gateway
-          '';
-
-          environment = {
-            PORT = "15888";
-          };
-        };
-
-        networking.firewall.allowedTCPPorts = [ 15888 ];
-
-        system.stateVersion = "25.11";
-      };
+          networking.firewall.allowedTCPPorts = [ 15888 ];
+        }
+      ];
     };
 
     sops.secrets."${userName}/gateway-passphrase" = {

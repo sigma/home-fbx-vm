@@ -41,7 +41,11 @@
         enable = true;
         modules = [
           sops-nix.nixosModules.sops
-          { nixpkgs.overlays = [ overlay ]; }
+          {
+            nixpkgs.overlays = [ overlay ];
+            # Make overlay available to all modules via _module.args
+            _module.args.fbxOverlay = overlay;
+          }
           ./modules/configuration.nix
         ];
       };
