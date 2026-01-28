@@ -11,6 +11,9 @@
 
 
   outputs = inputs @ { self, flake-parts, fbx-vm, nixpkgs, sops-nix, ... }:
+    let
+      overlay = import ./pkgs;
+    in
     flake-parts.lib.mkFlake { inherit inputs; } {
       imports = [
         fbx-vm.flakeModules.freebox
@@ -20,11 +23,25 @@
         "aarch64-linux"
       ];
 
+      flake.overlays.default = overlay;
+
+      perSystem = { system, ... }:
+        let
+          pkgs = import nixpkgs {
+            inherit system;
+            overlays = [ overlay ];
+          };
+        in {
+          packages = {
+            inherit (pkgs) hummingbot hummingbot-gateway;
+          };
+        };
+
       freebox.vm = {
         enable = true;
         modules = [
           sops-nix.nixosModules.sops
-          { nixpkgs.overlays = [ (import ./pkgs) ]; }
+          { nixpkgs.overlays = [ overlay ]; }
           ./modules/configuration.nix
         ];
       };
