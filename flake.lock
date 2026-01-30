@@ -6,11 +6,11 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1769613824,
-        "narHash": "sha256-e2xssZg2EIhn8nMsD1rCC7f/Zy/1G14AYx4UhnNWKmM=",
+        "lastModified": 1769796825,
+        "narHash": "sha256-f/SigTJ9mP+8C0RTj7aIDqHypiqyuBtH+62YdpR/KLI=",
         "owner": "firefly-engineering",
         "repo": "fbx-vm",
-        "rev": "08095d58ca619670f5f014066ce74cef41a89aa9",
+        "rev": "2fbdc1499c7ba96aeb4a616225eac645b91fe3f8",
         "type": "github"
       },
       "original": {
